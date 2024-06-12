@@ -23,7 +23,6 @@ hostname = oneapph5.dongfeng-nissan.com.cn
 # 手动拼接 nissan_val
 在https://oneapph5.dongfeng-nissan.com.cn/mb-gw/dndc-gateway/community/api/v2/user 找到以下参数
 # token = $request.headers['token']
-# appversion = $request.headers['appVersion']
 # uuid = $response.body.rows['one_id']
  */
 
