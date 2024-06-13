@@ -1,7 +1,7 @@
 /*
 日产智联签到
 仅QX测试，nodejs，其他自测
-2024-06-12
+2024-06-13
 获取Cookie方法 ，QX开重写，进入【日产智联】
 
 ======调试区|忽略======
@@ -72,11 +72,12 @@ async function main() {
   }
   intSha();
   //获取最新版本号
-  $.appversion = JSON.parse((await $.http.get(`https://itunes.apple.com/cn/lookup?id=1341994593`)).body).results[0].version;
+  $.appversion = $.toObj((await $.http.get(`https://itunes.apple.com/cn/lookup?id=1341994593`)).body).results[0].version;
+  $.log(`最新版本号：${$.appversion}`)
 
-  var {result, msg} = await signIn();
+  var {result, msg} = await signIn();//签到
   message += `签到：${msg}\n`;
-  if (result == 0 || result == 1) {
+if (result == 0 || result == 1) {
     var {result, msg, data} = await growthScore();
     message += (result == 1) ? `成长值：${data?.growthScore}\n` : '\n';
   } else {
@@ -88,8 +89,10 @@ async function main() {
   $.tittle = find_id?.data['feed_title'];//帖子标题
   if ($.push_id) {
     message += `帖子：${$.tittle}\n`;
+    var {result, msg} = await sort_view();//浏览器帖子
+    message += `浏览帖子：${msg}\n`;
     var {result, msg} = await sort_like();//点赞
-    message += `点赞：${msg}\n`;
+    message += `点赞帖子：${msg}\n`;
     var {result, msg} = await sort_unlike();// 取消点赞
     message += (result == 1) ? '取消点赞：成功\n' : `取消点赞：${msg}\n`;
   } else {
@@ -117,6 +120,11 @@ async function sort_push() {
   body = `{"volc":{"clientVersion":"${$.appversion}","os":"IOS","channel_id":1,"dt":"iPhone","os_version":"17.0.0","use_volc":1,"device_brand":"Apple"},"advert":{"rows":"10","page":1},"entrance":{"deviceType":"1","appversion":"${$.appversion}"},"recommends":{"page":1}}`;
   return await httpPost(url, body)
 }
+// 浏览帖子
+async function sort_view() {
+  url = `/mb-gw/dndc-gateway/community/api/v2/comments?commentable_id=${$.push_id}&commentable_type=feeds&limit=10&page=1&reply_all=0&sort_type=2&use_volc=0`;
+  return await httpPost(url)
+}
 
 // 点赞
 async function sort_like() {
@@ -128,14 +136,13 @@ async function sort_like() {
 // 取消点赞
 async function sort_unlike() {
   url = `/mb-gw/dndc-gateway/community/api/v2/feeds/${$.push_id}/unlike?use_volc=0`;
-  body = '';
-  return await httpPost(url, body, 'delete')
+  return await httpPost(url, body = '', method = 'delete')
 }
 
 async function httpPost(url, body, method) {
   timestamp = Math.floor(Date.now() / 1000);
   url = `https://oneapph5.dongfeng-nissan.com.cn${url}`;
-  body = body.replace('$$timestamp$$', timestamp);
+  body = body ? body?.replace('$$timestamp$$', timestamp) : body;
   noncestr = getNonce();
   sign = CryptoJS.SHA512(`nissanapp${timestamp}${$.token}${noncestr}1${$.uuid}`).toString();
   appversion = $.appversion || '3.1.5';
@@ -154,12 +161,13 @@ async function httpPost(url, body, method) {
     'Content-Type': 'application/json',
     urid: noncestr
   };
-  const rest = {url, body, headers, method};
+  const rest = {url, headers, body, method};
   return await httpRequest(rest);
 }
 
-//封装
-async function httpRequest(rest){return new Promise((resolve,reject)=>{$.post(rest,(error,response,body)=>{if(error){reject(error);}else{try{body=JSON.parse(body);}catch(parseError){}resolve(body);}});});}
+// 无 rest.method => (无rest.body, method为get), (有rest.body, method为post)
+// 有 rest.method => (为[get,post], method为本身)，(非[get,post], method为post)
+function httpRequest(rest){rest="string"==typeof rest?{url:rest}:rest;const method=rest?.method?(['get','post'].includes(rest.method.toLowerCase())?rest.method.toLowerCase():'post'):rest?.body?'post':'get';return new Promise((resolve,reject)=>{$[method](rest,(error,response,body)=>{if(error){reject(error);}else{try{body=JSON.parse(body);}catch(error){}resolve(body);}});});}
 
 //noncestr
 function getNonce(){return Array.from({length:32},(r,n)=>12===n?"4":"0123456789abcdef"[Math.floor(16*Math.random())]).join("").toUpperCase()};
