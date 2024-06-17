@@ -1,8 +1,9 @@
 /*
-日产智联签到
-仅QX测试，nodejs，其他自测
+东风日产签到，获得成长值
+测试Quantumult-X，loon，shoadowrocket，nodejs，其他自测
 2024-06-13
-获取Cookie方法 ，QX开重写，进入【日产智联】
+2024-06-17 修改点赞获取最新帖子，避免重复点赞同一个帖子。增加自动回帖,自动关注(经过测试 自动关注功能QX不行，loon,shoadowrocket，nodejs可用)。
+获取Cookie方法 ，QX开重写，进入【东风日产】
 
 ======调试区|忽略======
 # ^https:\/\/oneapph5\.dongfeng-nissan\.com\.cn\/mb-gw\/dndc-gateway\/community\/api\/v2\/user$ url script-response-body http://192.168.2.170:8080/nissan.js
@@ -13,7 +14,7 @@
 ^https:\/\/oneapph5\.dongfeng-nissan\.com\.cn\/mb-gw\/dndc-gateway\/community\/api\/v2\/user$ url script-response-body https://raw.githubusercontent.com/wf021325/qx/master/task/nissan.js
 
 [task_local]
-1 0 * * * https://raw.githubusercontent.com/wf021325/qx/master/task/nissan.js, tag= 日产智联签到, enabled=true
+1 0 * * * https://raw.githubusercontent.com/wf021325/qx/master/task/nissan.js, tag= 东风日产签到, enabled=true
 
 [mitm]
 hostname = oneapph5.dongfeng-nissan.com.cn
@@ -26,7 +27,7 @@ hostname = oneapph5.dongfeng-nissan.com.cn
 # uuid = $response.body.rows['one_id']
  */
 
-const $ = new Env("日产智联签到");
+const $ = new Env("东风日产签到");
 const _key = 'nissan_val';
 var CK_Val = $.getdata(_key) || ($.isNode() ? process.env[_key] : '');
 let message = '';
@@ -76,25 +77,53 @@ async function main() {
   $.log(`最新版本号：${$.appversion}`)
 
   var {result, msg} = await signIn();//签到
+  //$.log("result 的类型是:", typeof result);
   message += `签到：${msg}\n`;
-if (result == 0 || result == 1) {
-    var {result, msg, data} = await growthScore();
-    message += (result == 1) ? `成长值：${data?.growthScore}\n` : '\n';
-  } else {
-    return;//签到错误停止运行
+  if (result !== '0' && result !== '1') {
+    return; // 签到错误停止运行
   }
-  var {result, msg, rows} = await sort_push();//获取帖子
-  const find_id = rows.find(item => item.style_type === 'Postings_style');//Postings_style为帖子
-  $.push_id = find_id ? find_id?.data.id : null;//帖子id
-  $.tittle = find_id?.data['feed_title'];//帖子标题
+
+  /* var {result, msg, rows} = await sort_push();//推荐帖子
+   const find_id = rows?.find(item => item.style_type === 'Postings_style');//Postings_style为帖子
+   $.push_id = find_id ? find_id?.data.id : null;//帖子id
+   $.tittle = find_id?.data['feed_title'];//帖子标题*/
+
+  var {result, msg, rows} = await new_list();//【此刻-最新】帖子
+  const find_id = rows?.rows?.find(item => item.style_type === 'Postings_style');
+  $.push_id = find_id ? find_id?.id : null;//帖子id
+  $.tittle = find_id['feed_title'];//帖子标题
+  $.user_id = find_id['user_id']//楼主user_id
+  //$.log('楼主user_id:' + $.user_id)
+
   if ($.push_id) {
     message += `帖子：${$.tittle}\n`;
-    var {result, msg} = await sort_view();//浏览器帖子
+    var {result, msg} = await sort_view();//浏览帖子
     message += `浏览帖子：${msg}\n`;
+
     var {result, msg} = await sort_like();//点赞
     message += `点赞帖子：${msg}\n`;
     var {result, msg} = await sort_unlike();// 取消点赞
-    message += (result == 1) ? '取消点赞：成功\n' : `取消点赞：${msg}\n`;
+    message += (result == '1') ? '取消点赞：成功\n' : `取消点赞：${msg}\n`;
+
+    var {result, msg, rows} = await comments();//评论帖子
+    message += `评论帖子：${msg}\n`;
+    if (result == '1') {
+      $.comment_id = rows?.comment?.id;
+      var {result, msg} = await comments_del();//删除评论
+      message += `取消评论：${msg}\n`;
+    }
+
+    if (!$.isQuanX()) {
+      // put/delete
+      var {result, msg} = await follow('put');//关注
+      message += `关注博主：${msg}\n`;
+      var {result, msg} = await follow('delete');//取消关注
+      message += `取消关注：${msg}\n`;
+    }
+
+    var {result, msg, data} = await growthScore();//查询成长值
+    message += (result == '1') ? `成长值：${data?.growthScore}\n` : '\n';
+
   } else {
     message += `帖子：${msg}\n`;
   }
@@ -115,14 +144,22 @@ async function growthScore() {
 }
 
 // 推荐帖子
-async function sort_push() {
+/*async function sort_push() {
   url = `/mb-gw/dfn-recommend/recommend/info/manager/sort/push`;
   body = `{"volc":{"clientVersion":"${$.appversion}","os":"IOS","channel_id":1,"dt":"iPhone","os_version":"17.0.0","use_volc":1,"device_brand":"Apple"},"advert":{"rows":"10","page":1},"entrance":{"deviceType":"1","appversion":"${$.appversion}"},"recommends":{"page":1}}`;
   return await httpPost(url, body)
+}*/
+
+//最新帖子
+async function new_list() {
+  url = `/mb-gw/dndc-gateway/community/api/v2/feeds/new_list`;
+  return await httpPost(url)
 }
+
 // 浏览帖子
 async function sort_view() {
-  url = `/mb-gw/dndc-gateway/community/api/v2/comments?commentable_id=${$.push_id}&commentable_type=feeds&limit=10&page=1&reply_all=0&sort_type=2&use_volc=0`;
+  //url = `/mb-gw/dndc-gateway/community/api/v2/comments?commentable_id=${$.push_id}&commentable_type=feeds&limit=10&page=1&reply_all=0&sort_type=2&use_volc=0`;// 推荐帖子
+  url = `/mb-gw/dndc-gateway/community/api/v2/feeds/${$.push_id}?use_volc=0`;//【此刻-最新】帖子
   return await httpPost(url)
 }
 
@@ -136,7 +173,32 @@ async function sort_like() {
 // 取消点赞
 async function sort_unlike() {
   url = `/mb-gw/dndc-gateway/community/api/v2/feeds/${$.push_id}/unlike?use_volc=0`;
-  return await httpPost(url, body = '', method = 'delete')
+  return await httpPost(url, '', method = 'delete')
+}
+
+//评论
+async function comments() {
+  url = `/mb-gw/dndc-gateway/community/api/v2/comments`;
+  body = `{"body":"${a()}","commentable_id":${$.push_id},"commentable_type":"feeds","use_volc":false}`;
+  return await httpPost(url, body)
+}
+
+//删除评论
+async function comments_del() {
+  url = `/mb-gw/dndc-gateway/community/api/v2/comments/${$.comment_id}?use_volc=0`;
+  return await httpPost(url, '', method = 'delete')
+}
+
+//关注/取消关注 put/delete
+async function follow(method) {
+  url = `/mb-gw/dndc-gateway/community/api/v2/user/followings/${$.user_id}`;
+  return await httpPost(url, '', method)
+}
+
+function a() {
+  const text = ['我非常赞同您的观点', '您的帖子让我看到了全新的角度', '谢谢您的分享，感谢', '您的帖子让我受益匪浅', '再次感谢您的分享！', '非常赞同您的观点', '感谢您为我打开了一扇新门', '你的帖子给我带来了很大的启发', '谢谢您的分享和付出！', '这帖子很有帮助'
+  ];
+  return text[Math.floor(Math.random() * text.length)]
 }
 
 async function httpPost(url, body, method) {
